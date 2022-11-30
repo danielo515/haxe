@@ -403,7 +403,7 @@ and encode_display_mode dm =
 	in
 	encode_enum ~pos:None IDisplayMode tag pl
 
-and encode_message (msg,p,_,sev) =
+and encode_message (msg,p,n,_,sev) =
 	let tag, pl = match sev with
 		| Globals.MessageSeverity.Information -> 0, [(encode_string msg); (encode_pos p)]
 		| Warning | Hint -> 1, [(encode_string msg); (encode_pos p)]
@@ -1608,7 +1608,7 @@ let macro_api ccom get_api =
 		"fatal_error", vfun2 (fun msg p ->
 			let msg = decode_string msg in
 			let p = decode_pos p in
-			raise (Error.Fatal_error (msg,p))
+			raise (Error.Fatal_error (msg,p,0))
 		);
 		"report_error", vfun2 (fun msg p ->
 			let msg = decode_string msg in
