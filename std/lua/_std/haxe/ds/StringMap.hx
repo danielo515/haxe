@@ -20,100 +20,95 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-package haxe.ds;
+package lua;
 
 import lua.Lua;
 
-class StringMap<T> implements haxe.Constraints.IMap<String, T> {
-	private var h:lua.Table<String, T>;
+class StringMap< T > implements haxe.Constraints.IMap< String, T > {
+  private var h:lua.Table< String, T >;
 
-	static var tnull:Dynamic = lua.Table.create();
+  static var tnull:Dynamic = lua.Table.create();
 
-	public inline function new():Void {
-		h = lua.Table.create();
-	}
+  public inline function new():Void {
+    h = lua.Table.create();
+  }
 
-	public inline function set(key:String, value:T):Void
-		untyped {
-			if (value == null) {
-				h[key] = tnull;
-			} else {
-				h[key] = value;
-			}
-		}
+  public function set(key:String, value:T):Void {
+    if (value == null) {
+      h[untyped key] = tnull;
+    } else {
+      h[untyped key] = value;
+    }
+  }
 
-	public inline function get(key:String):Null<T>
-		untyped {
-			var ret = h[key];
-			if (ret == tnull) {
-				return null;
-			}
-			return ret;
-		}
+  public function get(key:String):Null< T > {
+    var ret = h[untyped key];
+    if (ret == tnull) {
+      return null;
+    }
+    return ret;
+  }
 
-	public inline function exists(key:String):Bool
-		untyped {
-			return h[key] != null;
-		}
+  public inline function exists(key:String):Bool {
+    return h[untyped key] != null;
+  }
 
-	public function remove(key:String):Bool
-		untyped {
-			if (h[key] == null) {
-				return false;
-			} else {
-				h[key] = null;
-				return true;
-			}
-		}
+  public function remove(key:String):Bool untyped {
+    if (h[key] == null) {
+      return false;
+    } else {
+      h[key] = null;
+      return true;
+    }
+  }
 
-	public function keys():Iterator<String> {
-		var next = Lua.next;
-		var cur = next(h, null).index;
-		return {
-			next: function() {
-				var ret = cur;
-				cur = next(h, cur).index;
-				return cast ret;
-			},
-			hasNext: function() return cur != null
-		}
-	}
+  public function keys():Iterator< String > {
+    var next = Lua.next;
+    var cur = next(h, null).index;
+    return {
+      next: function() {
+        var ret = cur;
+        cur = next(h, cur).index;
+        return cast ret;
+      },
+      hasNext: function() return cur != null
+    }
+  }
 
-	public function iterator():Iterator<T> {
-		var it = keys();
-		return untyped {
-			hasNext: function() return it.hasNext(),
-			next: function() return h[it.next()]
-		};
-	}
+  public function iterator():Iterator< T > {
+    var it = keys();
+    return untyped {
+      hasNext: function() return it.hasNext(),
+      next: function() return h[it.next()]
+    };
+  }
 
-	@:runtime public inline function keyValueIterator():KeyValueIterator<String, T> {
-		return new haxe.iterators.MapKeyValueIterator(this);
-	}
+  @:runtime public inline function keyValueIterator():KeyValueIterator< String, T > {
+    return new haxe.iterators.MapKeyValueIterator(this);
+  }
 
-	public function copy():StringMap<T> {
-		var copied = new StringMap();
-		for (key in keys())
-			copied.set(key, get(key));
-		return copied;
-	}
+  public function copy():StringMap< T > {
+    var copied = new StringMap();
+    for (key in keys()) copied.set(key, get(key));
+    return copied;
+  }
 
-	public function toString():String {
-		var s = new StringBuf();
-		s.add("[");
-		var it = keys();
-		for (i in it) {
-			s.add(i);
-			s.add(" => ");
-			s.add(Std.string(get(i)));
-			if (it.hasNext())
-				s.add(", ");
-		}
-		s.add("]");
-		return s.toString();
-	}
+  public function toString():String {
+    var s = new StringBuf();
+    s.add("[");
+    var it = keys();
+    for (i in it) {
+      s.add(i);
+      s.add(" => ");
+      s.add(Std.string(get(i)));
+      if (it.hasNext())
+        s.add(", ");
+    }
+    s.add("]");
+    return s.toString();
+  }
 
-	public inline function clear():Void {
-		h = lua.Table.create();
-	}
+  public inline function clear():Void {
+    h = lua.Table.create();
+  }
 }
