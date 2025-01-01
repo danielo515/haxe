@@ -163,7 +163,7 @@ let api_inline ctx c field params p =
 			Some (Texpr.Builder.fcall (eJsSyntax()) "instanceof" [o;t] tbool p)
 	| (["haxe";"ds";"_Vector"],"Vector_Impl_"),("fromArrayCopy"),[{ eexpr = TArrayDecl args } as edecl] -> (try
 			let platf = match ctx.com.platform with
-				| Jvm -> "java"
+				| Jvm -> "jvm"
 				| _ -> raise Exit
 			in
 			let mpath = if field = "fromArrayCopy" then
@@ -912,7 +912,7 @@ and inline_rest_params ctx f params map_type p =
 						in
 						let array = mk (TArrayDecl params) (ctx.t.tarray t_params) p in
 						(* haxe.Rest.of(array) *)
-						let e = make_static_call ctx c cf (apply_params a.a_params [t]) [array] (TAbstract(a,[t_params])) p in
+						let e =CallUnification.make_static_call_better ctx c cf [t] [array] (TAbstract(a,[t_params])) p in
 						[e]
 					| _ ->
 						die ~p:v.v_pos "Unexpected rest arguments type" __LOC__

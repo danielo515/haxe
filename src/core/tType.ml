@@ -83,13 +83,13 @@ and tmono = {
 	*)
 	mutable tm_down_constraints : tmono_constraint list;
 	mutable tm_up_constraints : (t * string option) list;
+	mutable tm_modifiers : tmono_modifier list;
 }
 
 and tmono_constraint =
 	| MMono of tmono * string option
 	| MField of tclass_field
 	| MType of t * string option
-	| MOpenStructure
 	| MEmptyStructure
 
 and tmono_constraint_kind =
@@ -97,6 +97,11 @@ and tmono_constraint_kind =
 	| CStructural of (string,tclass_field) PMap.t * bool
 	| CMixed of tmono_constraint_kind list
 	| CTypes of (t * string option) list
+
+and tmono_modifier =
+	| MNullable of (t -> t)
+	| MOpenStructure
+	| MDynamic (* There was a unificaiton against Dynamic, which didn't bind the mono *)
 
 and tlazy =
 	| LAvailable of t
@@ -473,6 +478,7 @@ type basic_types = {
 	mutable tnull : t -> t;
 	mutable tstring : t;
 	mutable tarray : t -> t;
+	mutable titerator : t -> t
 }
 
 type class_field_scope =
@@ -505,10 +511,11 @@ type flag_tclass_field =
 	| CfPostProcessed (* Marker to indicate the field has been post-processed *)
 	| CfUsed (* Marker for DCE *)
 	| CfMaybeUsed (* Marker for DCE *)
+	| CfNoLookup (* Field cannot be accessed by-name. *)
 
 (* Order has to match declaration for printing*)
 let flag_tclass_field_names = [
-	"CfPublic";"CfStatic";"CfExtern";"CfFinal";"CfModifiesThis";"CfOverride";"CfAbstract";"CfOverload";"CfImpl";"CfEnum";"CfGeneric";"CfDefault";"CfPostProcessed";"CfUsed";"CfMaybeUsed"
+	"CfPublic";"CfStatic";"CfExtern";"CfFinal";"CfModifiesThis";"CfOverride";"CfAbstract";"CfOverload";"CfImpl";"CfEnum";"CfGeneric";"CfDefault";"CfPostProcessed";"CfUsed";"CfMaybeUsed";"CfNoLookup"
 ]
 
 type flag_tenum =

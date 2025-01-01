@@ -333,12 +333,17 @@ let make_binop ctx op e1 e2 is_assign_op p =
 		with Error { err_message = Unify _ } ->
 			e1,AbstractCast.cast_or_unify ctx e1.etype e2 p
 		in
-		if not ctx.com.config.pf_supports_function_equality then begin match e1.eexpr, e2.eexpr with
+		begin match e1.eexpr, e2.eexpr with
 		| TConst TNull , _ | _ , TConst TNull -> ()
 		| _ ->
 			match follow e1.etype, follow e2.etype with
-			| TFun _ , _ | _, TFun _ -> warning ctx WClosureCompare "Comparison of function values is unspecified on this target, use Reflect.compareMethods instead" p
-			| _ -> ()
+			| TFun _ , _ | _, TFun _ when not ctx.com.config.pf_supports_function_equality ->
+				warning ctx WClosureCompare "Comparison of function values is unspecified on this target, use Reflect.compareMethods instead" p
+			| TEnum(en,_), _ | _, TEnum(en,_) ->
+				if not (Meta.has Meta.FlatEnum en.e_meta) then
+					warning ctx WUnsafeEnumEquality "Equality operations on this enum might lead to unexpected results because some constructors have arguments" p
+			| _ ->
+				()
 		end;
 		mk_op e1 e2 ctx.t.tbool
 	| OpGt
@@ -429,11 +434,11 @@ let find_abstract_binop_overload ctx op e1 e2 a c tl left is_assign_op p =
 			let vr = new value_reference ctx in
 			let e2' = vr#as_var "lhs" e2 in
 			let e1' = vr#as_var "rhs" e1 in
-			let e = make_static_call ctx c cf map [e1';e2'] tret p in
+			let e = CallUnification.make_static_call_better ctx c cf tl [e1';e2'] tret p in
 			let e = vr#to_texpr e in
 			BinopResult.create_special e needs_assign
 		end else
-			BinopResult.create_special (make_static_call ctx c cf map [e1;e2] tret p) needs_assign
+			BinopResult.create_special (make_static_call_better ctx c cf tl [e1;e2] tret p) needs_assign
 	in
 	(* special case for == and !=: if the second type is a monomorph, assume that we want to unify
 		it with the first type to preserve comparison semantics. *)

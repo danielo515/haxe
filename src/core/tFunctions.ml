@@ -432,6 +432,7 @@ let dynamify_monos t =
 	loop t
 
 exception ApplyParamsRecursion
+exception ApplyParamsMismatch
 
 (* substitute parameters with other types *)
 let apply_params ?stack cparams params t =
@@ -442,7 +443,7 @@ let apply_params ?stack cparams params t =
 		match l1, l2 with
 		| [] , [] -> []
 		| ttp :: l1 , t2 :: l2 -> (ttp.ttp_class,t2) :: loop l1 l2
-		| _ -> die "" __LOC__
+		| _ -> raise ApplyParamsMismatch
 	in
 	let subst = loop cparams params in
 	let rec loop t =
@@ -645,9 +646,12 @@ let rec ambiguate_funs t =
 	| TFun _ -> TFun ([], t_dynamic)
 	| _ -> map ambiguate_funs t
 
+let is_nullable_mono m =
+	List.exists (function MNullable _ -> true | _ -> false) m.tm_modifiers
+
 let rec is_nullable ?(no_lazy=false) = function
 	| TMono r ->
-		(match r.tm_type with None -> false | Some t -> is_nullable ~no_lazy t)
+		(match r.tm_type with None -> is_nullable_mono r | Some t -> is_nullable ~no_lazy t)
 	| TAbstract ({ a_path = ([],"Null") },[_]) ->
 		true
 	| TLazy f ->
@@ -678,7 +682,7 @@ let rec is_nullable ?(no_lazy=false) = function
 
 let rec is_null ?(no_lazy=false) = function
 	| TMono r ->
-		(match r.tm_type with None -> false | Some t -> is_null ~no_lazy t)
+		(match r.tm_type with None -> is_nullable_mono r | Some t -> is_null ~no_lazy t)
 	| TAbstract ({ a_path = ([],"Null") },[t]) ->
 		not (is_nullable ~no_lazy (follow t))
 	| TLazy f ->
@@ -695,7 +699,7 @@ let rec is_null ?(no_lazy=false) = function
 (* Determines if we have a Null<T>. Unlike is_null, this returns true even if the wrapped type is nullable itself. *)
 let rec is_explicit_null = function
 	| TMono r ->
-		(match r.tm_type with None -> false | Some t -> is_explicit_null t)
+		(match r.tm_type with None -> is_nullable_mono r | Some t -> is_explicit_null t)
 	| TAbstract ({ a_path = ([],"Null") },[t]) ->
 		true
 	| TLazy f ->
