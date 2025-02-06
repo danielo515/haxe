@@ -4,3 +4,7 @@
 (package
 	(name haxe)
 )
+
+(package
+	(name haxe_prebuild)
+)
