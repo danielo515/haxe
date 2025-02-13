@@ -230,7 +230,7 @@ module Setup = struct
 	let setup_common_context ctx =
 		let com = ctx.com in
 		ctx.com.print <- ctx.comm.write_out;
-		Common.define_value com Define.HaxeVer (Printf.sprintf "%.3f" (float_of_int Globals.version /. 1000.));
+		Common.define_value com Define.HaxeVer (Printf.sprintf "%.3f" (float_of_int version /. 1000.));
 		Common.raw_define com "haxe3";
 		Common.raw_define com "haxe4";
 		Common.raw_define com "haxe5";
@@ -419,6 +419,10 @@ let compile ctx actx callbacks =
 		) (List.rev actx.cmds)
 	end
 
+let make_ice_message com msg backtrace = 
+		let ver = (s_version_full com.version) in
+		let os_type = if Sys.unix then "unix" else "windows" in
+		Printf.sprintf "%s\nHaxe: %s; OS type: %s;\n%s" msg ver os_type backtrace
 let compile_safe ctx f =
 	let com = ctx.com in
 try
@@ -446,6 +450,12 @@ with
 		handle_diagnostics ctx msg null_pos DKCompilerMessage;
 	| Failure msg when not Helper.is_debug_run ->
 		error ctx ("Error: " ^ msg) null_pos
+	| Globals.Ice (msg,backtrace) when is_diagnostics com ->
+		let s = make_ice_message com msg backtrace in
+		handle_diagnostics ctx s null_pos DKCompilerMessage 
+	| Globals.Ice (msg,backtrace) when not Helper.is_debug_run ->
+		let s = make_ice_message com msg backtrace in
+		error ctx ("Error: " ^ s) null_pos
 	| Helper.HelpMessage msg ->
 		print_endline msg
 	| Parser.TypePath (p,c,is_import,pos) ->
@@ -517,7 +527,14 @@ let compile_ctx callbacks ctx =
 		catch_completion_and_exit ctx callbacks run
 
 let create_context comm cs compilation_step params = {
-	com = Common.create compilation_step cs version params (DisplayTypes.DisplayMode.create !Parser.display_mode);
+	com = Common.create compilation_step cs {
+		version = version;
+		major = version_major;
+		minor = version_minor;
+		revision = version_revision;
+		pre = version_pre;
+		extra = Version.version_extra;
+	} params (DisplayTypes.DisplayMode.create !Parser.display_mode);
 	messages = [];
 	has_next = false;
 	has_error = false;
