@@ -14,7 +14,7 @@ let create com macros =
 			core_api = None;
 			macros = macros;
 			module_check_policies = [];
-			delayed = Array.init all_typer_passes_length (fun _ -> { tasks = []});
+			delayed = Array.init TyperPass.all_typer_passes_length (fun _ -> { tasks = []});
 			delayed_min_index = 0;
 			debug_delayed = [];
 			doinline = com.display.dms_inline && not (Common.defined com Define.NoInline);
@@ -107,7 +107,14 @@ let create com macros =
 				in
 				ctx.t.tnull <- mk_null;
 			| _ -> ())
-		| TEnumDecl _ | TClassDecl _ | TTypeDecl _ ->
+		| TTypeDecl td ->
+			begin match snd td.t_path with
+			| "Iterator" ->
+				ctx.t.titerator <- (fun t -> TType(td,[t]))
+			| _ ->
+				()
+			end
+		| TEnumDecl _ | TClassDecl _ ->
 			()
 	) ctx.g.std_types.m_types;
 	let m = TypeloadModule.load_module ctx ([],"String") null_pos in

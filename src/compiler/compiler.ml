@@ -2,16 +2,16 @@ open Globals
 open Common
 open CompilationContext
 
+let handle_diagnostics ctx msg p kind =
+	ctx.has_error <- true;
+	add_diagnostics_message ctx.com msg p kind Error;
+	match ctx.com.report_mode with
+	| RMLegacyDiagnostics _ -> DisplayOutput.emit_legacy_diagnostics ctx.com
+	| RMDiagnostics _ -> DisplayOutput.emit_diagnostics ctx.com
+	| _ -> die "" __LOC__
+
 let run_or_diagnose ctx f =
 	let com = ctx.com in
-	let handle_diagnostics msg p kind =
-		ctx.has_error <- true;
-		add_diagnostics_message com msg p kind Error;
-		match com.report_mode with
-		| RMLegacyDiagnostics _ -> DisplayOutput.emit_legacy_diagnostics ctx.com
-		| RMDiagnostics _ -> DisplayOutput.emit_diagnostics ctx.com
-		| _ -> die "" __LOC__
-	in
 	if is_diagnostics com then begin try
 			f ()
 		with
@@ -25,9 +25,9 @@ let run_or_diagnose ctx f =
 			| RMDiagnostics _ -> DisplayOutput.emit_diagnostics ctx.com
 			| _ -> die "" __LOC__)
 		| Parser.Error(msg,p) ->
-			handle_diagnostics (Parser.error_msg msg) p DKParserError
+			handle_diagnostics ctx (Parser.error_msg msg) p DKParserError
 		| Lexer.Error(msg,p) ->
-			handle_diagnostics (Lexer.error_msg msg) p DKParserError
+			handle_diagnostics ctx (Lexer.error_msg msg) p DKParserError
 		end
 	else
 		f ()
@@ -230,9 +230,10 @@ module Setup = struct
 	let setup_common_context ctx =
 		let com = ctx.com in
 		ctx.com.print <- ctx.comm.write_out;
-		Common.define_value com Define.HaxeVer (Printf.sprintf "%.3f" (float_of_int Globals.version /. 1000.));
+		Common.define_value com Define.HaxeVer (Printf.sprintf "%.3f" (float_of_int version /. 1000.));
 		Common.raw_define com "haxe3";
 		Common.raw_define com "haxe4";
+		Common.raw_define com "haxe5";
 		Common.define_value com Define.Haxe s_version;
 		Common.raw_define com "true";
 		Common.define_value com Define.Dce "std";
@@ -240,7 +241,7 @@ module Setup = struct
 			message ctx (make_compiler_message ~from_macro msg p depth DKCompilerMessage Information)
 		);
 		com.warning <- (fun ?(depth=0) ?(from_macro=false) w options msg p ->
-			match Warning.get_mode w (com.warning_options @ options) with
+			match Warning.get_mode w (options @ com.warning_options) with
 			| WMEnable ->
 				let wobj = Warning.warning_obj w in
 				let msg = if wobj.w_generic then
@@ -295,6 +296,7 @@ let do_type ctx mctx actx display_file_dot_path =
 		Some (MacroContext.call_init_macro ctx.com mctx path)
 	) mctx (List.rev actx.config_macros) in
 	enter_stage com CInitMacrosDone;
+	update_platform_config com; (* make sure to adapt all flags changes defined during init macros *)
 	ServerMessage.compiler_stage com;
 
 	let macros = match mctx with None -> None | Some mctx -> mctx.g.macros in
@@ -308,7 +310,10 @@ let do_type ctx mctx actx display_file_dot_path =
 		com.callbacks#run com.error_ext com.callbacks#get_after_init_macros;
 		run_or_diagnose ctx (fun () ->
 			if com.display.dms_kind <> DMNone then DisplayTexpr.check_display_file tctx cs;
-			List.iter (fun cpath -> ignore(tctx.Typecore.g.Typecore.do_load_module tctx cpath null_pos)) (List.rev actx.classes);
+			List.iter (fun cpath ->
+				ignore(tctx.Typecore.g.Typecore.do_load_module tctx cpath null_pos);
+				Typecore.flush_pass tctx.g PBuildClass "actx.classes"
+			) (List.rev actx.classes);
 			Finalization.finalize tctx;
 		);
 	end with TypeloadParse.DisplayInMacroBlock ->
@@ -328,18 +333,19 @@ let do_type ctx mctx actx display_file_dot_path =
 let finalize_typing ctx tctx =
 	let t = Timer.timer ["finalize"] in
 	let com = ctx.com in
+	let main_module = Finalization.maybe_load_main tctx in
 	enter_stage com CFilteringStart;
 	ServerMessage.compiler_stage com;
-	let main, types, modules = run_or_diagnose ctx (fun () -> Finalization.generate tctx) in
+	let main, types, modules = run_or_diagnose ctx (fun () -> Finalization.generate tctx main_module) in
 	com.main.main_expr <- main;
 	com.types <- types;
 	com.modules <- modules;
 	t()
 
-let filter ctx tctx before_destruction =
+let filter ctx tctx ectx before_destruction =
 	let t = Timer.timer ["filters"] in
 	DeprecationCheck.run ctx.com;
-	run_or_diagnose ctx (fun () -> Filters.run tctx ctx.com.main.main_expr before_destruction);
+	run_or_diagnose ctx (fun () -> Filters.run tctx ectx ctx.com.main.main_expr before_destruction);
 	t()
 
 let compile ctx actx callbacks =
@@ -381,6 +387,7 @@ let compile ctx actx callbacks =
 		(* Actual compilation starts here *)
 		let (tctx,display_file_dot_path) = do_type ctx mctx actx display_file_dot_path in
 		DisplayProcessing.handle_display_after_typing ctx tctx display_file_dot_path;
+		let ectx = Exceptions.create_exception_context tctx in
 		finalize_typing ctx tctx;
 		let is_compilation = is_compilation com in
 		com.callbacks#add_after_save (fun () ->
@@ -392,10 +399,10 @@ let compile ctx actx callbacks =
 					()
 		);
 		if is_diagnostics com then
-			filter ctx tctx (fun () -> DisplayProcessing.handle_display_after_finalization ctx tctx display_file_dot_path)
+			filter ctx tctx ectx (fun () -> DisplayProcessing.handle_display_after_finalization ctx tctx display_file_dot_path)
 		else begin
 			DisplayProcessing.handle_display_after_finalization ctx tctx display_file_dot_path;
-			filter ctx tctx (fun () -> ());
+			filter ctx tctx ectx (fun () -> ());
 		end;
 		if ctx.has_error then raise Abort;
 		if is_compilation then Generate.check_auxiliary_output com actx;
@@ -415,6 +422,10 @@ let compile ctx actx callbacks =
 		) (List.rev actx.cmds)
 	end
 
+let make_ice_message com msg backtrace = 
+		let ver = (s_version_full com.version) in
+		let os_type = if Sys.unix then "unix" else "windows" in
+		Printf.sprintf "%s\nHaxe: %s; OS type: %s;\n%s" msg ver os_type backtrace
 let compile_safe ctx f =
 	let com = ctx.com in
 try
@@ -438,8 +449,16 @@ with
 		error_ext ctx err
 	| Arg.Bad msg ->
 		error ctx ("Error: " ^ msg) null_pos
+	| Failure msg when is_diagnostics com ->
+		handle_diagnostics ctx msg null_pos DKCompilerMessage;
 	| Failure msg when not Helper.is_debug_run ->
 		error ctx ("Error: " ^ msg) null_pos
+	| Globals.Ice (msg,backtrace) when is_diagnostics com ->
+		let s = make_ice_message com msg backtrace in
+		handle_diagnostics ctx s null_pos DKCompilerMessage 
+	| Globals.Ice (msg,backtrace) when not Helper.is_debug_run ->
+		let s = make_ice_message com msg backtrace in
+		error ctx ("Error: " ^ s) null_pos
 	| Helper.HelpMessage msg ->
 		print_endline msg
 	| Parser.TypePath (p,c,is_import,pos) ->
@@ -511,7 +530,14 @@ let compile_ctx callbacks ctx =
 		catch_completion_and_exit ctx callbacks run
 
 let create_context comm cs compilation_step params = {
-	com = Common.create compilation_step cs version params (DisplayTypes.DisplayMode.create !Parser.display_mode);
+	com = Common.create compilation_step cs {
+		version = version;
+		major = version_major;
+		minor = version_minor;
+		revision = version_revision;
+		pre = version_pre;
+		extra = Version.version_extra;
+	} params (DisplayTypes.DisplayMode.create !Parser.display_mode);
 	messages = [];
 	has_next = false;
 	has_error = false;
@@ -577,6 +603,7 @@ module HighLevel = struct
 		let args = !each_args @ args in
 		let added_libs = Hashtbl.create 0 in
 		let server_mode = ref SMNone in
+		let hxml_stack = ref [] in
 		let create_context args =
 			let ctx = create (server_api.on_context_create()) args in
 			ctx
@@ -636,6 +663,11 @@ module HighLevel = struct
 			| arg :: l ->
 				match List.rev (ExtString.String.nsplit arg ".") with
 				| "hxml" :: _ :: _ when (match acc with "-cmd" :: _ | "--cmd" :: _ -> false | _ -> true) ->
+					let full_path = Extc.get_full_path arg in
+					if List.mem full_path !hxml_stack then
+						raise (Arg.Bad (Printf.sprintf "Duplicate hxml inclusion: %s" full_path))
+					else
+						hxml_stack := full_path :: !hxml_stack;
 					let acc, l = (try acc, Helper.parse_hxml arg @ l with Not_found -> (arg ^ " (file not found)") :: acc, l) in
 					loop acc l
 				| _ ->
