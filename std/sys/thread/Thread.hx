@@ -149,15 +149,18 @@ class Thread {
 			currentTLS.value = t;
 			var exception = null;
 			try {
+				#if hl
+				hl.Api.setErrorHandler(null);
+				#end
 				job();
 				t.events.loop();
 			} catch( e ) {
 				exception = e;
 			}
 			t.dispose();
-			@:privateAccess main().events.wakeup();
 			if( exception != null )
 				t.onAbort(exception);
+			@:privateAccess main().events.wakeup();
 		});
 		return t;
 	}
